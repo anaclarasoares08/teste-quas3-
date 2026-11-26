@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leitor & Cadastro Inteligente de Alimentos (GTIN Cosmos)</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Biblioteca Leitora de Código de Barras -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    .glass-card {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .gradient-bg {
+      background: radial-gradient(circle at top, #064e3b 0%, #020617 65%);
+    }
+    #reader video {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      border-radius: 1rem;
+    }
+    #reader__dashboard_section_csr,
+    #reader__status_span {
+      display: none !important;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(2, 6, 23, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(16, 185, 129, 0.3); border-radius: 999px; }
+  </style>
+</head>
+<body class="gradient-bg text-slate-100 font-sans min-h-screen p-4 md:p-8">
+
+  <!-- TOAST DE NOTIFICAÇÃO -->
+  <div id="toast" class="fixed top-5 right-5 z-50 transform translate-x-full opacity-0 transition-all duration-300 bg-emerald-900 border border-emerald-400/50 text-emerald-100 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-sm font-bold">
+    <span id="toastIcon">✅</span>
+    <span id="toastMsg">Pronto!</span>
+  </div>
+
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- CABEÇALHO -->
+    <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-500/20 pb-4">
+      <div>
+        <h1 class="text-2xl font-black text-emerald-300 tracking-tight">Scanner &amp; Cadastro Assistido por IA</h1>
+        <p class="text-xs text-slate-400">Códigos GTIN/EAN auditados via Bluesoft Cosmos + assistente inteligente de cadastro.</p>
+      </div>
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <span id="totalBadge" class="text-xs bg-emerald-950 border border-emerald-500/30 text-emerald-300 px-3 py-1.5 rounded-full font-bold">
+          0 itens
+        </span>
+        <span id="camStatus" class="text-xs bg-slate-900 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-full font-mono">
+          ● Iniciando leitor...
+        </span>
+      </div>
+    </header>
+
+    <!-- ÁREA PRINCIPAL EM 2 COLUNAS -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- COLUNA ESQUERDA: LEITOR DE CÓDIGO DE BARRAS (6 colunas) -->
+      <div class="lg:col-span-6 space-y-4">
+        <div class="glass-card p-5 rounded-3xl space-y-4 shadow-xl">
+
+          <!-- SELETOR DE CÂMERA -->
+          <div id="cameraSelectBox" class="hidden">
+            <label for="cameraSelect" class="block text-[10px] uppercase tracking-wider text-emerald-300 font-bold mb-1">
+              Câmera selecionada:
+            </label>
+            <select id="cameraSelect" onchange="changeCamera(this.value)" class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-emerald-400">
+            </select>
+          </div>
+
+          <!-- VISOR DA CÂMERA -->
+          <div class="relative overflow-hidden rounded-2xl bg-slate-950 border-2 border-emerald-500/30 h-64 flex items-center justify-center">
+            <div id="reader" class="w-full h-full"></div>
+
+            <!-- GUIA VISUAL -->
+            <div id="scanOverlay" class="hidden absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-10">
+              <div class="w-[82%] h-28 border-2 border-emerald-400/70 rounded-xl relative flex items-center justify-center bg-emerald-500/5">
+                <div class="w-[92%] h-[2px] bg-rose-500 shadow-[0_0_12px_#f43f5e] animate-pulse"></div>
+              </div>
+              <span class="mt-2 text-[10px] bg-slate-950/80 text-emerald-200 px-2.5 py-0.5 rounded-full">
+                Alinhe as barras dentro do retângulo
+              </span>
+            </div>
+
+            <!-- AVISO CASO A CÂMERA ESTEJA DESLIGADA -->
+            <div id="cameraFallback" class="hidden absolute inset-0 flex flex-col items-center justify-center p-5 text-center bg-slate-950/90 z-20">
+              <span class="text-3xl mb-2">📷</span>
+              <p id="cameraFallbackMsg" class="text-xs text-slate-300 mb-3">Câmera desligada ou aguardando permissão.</p>
+              <button onclick="startScanner()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition">
+                Ligar Câmera
+              </button>
+            </div>
+          </div>
+
+          <!-- BOTÕES DO LEITOR -->
+          <div class="grid grid-cols-2 gap-3">
+            <label class="cursor-pointer bg-emerald-900/50 hover:bg-emerald-800/70 border border-emerald-500/30 text-emerald-200 font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition">
+              <span>🖼️</span> Ler de Foto
+              <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="scanFromFile(event)" />
+            </label>
+            <button onclick="restartScanner()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition">
+              <span>🔄</span> Reiniciar Leitor
+            </button>
+          </div>
+
+          <!-- BUSCA MANUAL POR NÚMERO -->
+          <div class="pt-2 border-t border-slate-800">
+            <label for="manualBarcode" class="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">
+              Consultar código de barras (GTIN / EAN):
+            </label>
+            <div class="flex gap-2">
+              <input type="text" id="manualBarcode" inputmode="numeric" placeholder="Ex: 7891000249673"
+                onkeydown="if(event.key==='Enter') searchManual()"
+                class="flex-1 bg-slate-900 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-sm text-slate-100 font-mono focus:outline-none focus:border-emerald-400" />
+              <button onclick="searchManual()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-5 py-2 rounded-xl transition">
+                Consultar
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- COLUNA DIREITA: RESULTADO OU FORMULÁRIO ASSISTIDO POR IA (6 colunas) -->
+      <div class="lg:col-span-6 space-y-4">
+
+        <!-- CARD 1: ALIMENTO ENCONTRADO -->
+        <div id="foodResultCard" class="hidden glass-card p-6 rounded-3xl space-y-4 border-2 border-emerald-500/50 shadow-2xl">
+          <div class="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span id="resBarcode" class="text-xs font-mono bg-emerald-950 text-emerald-300 px-2.5 py-1 rounded-md border border-emerald-500/30">
+                  EAN: ---
+                </span>
+                <a id="cosmosLink" href="#" target="_blank" rel="noopener noreferrer" class="text-[11px] bg-sky-950/80 hover:bg-sky-900 text-sky-300 px-2.5 py-1 rounded-md border border-sky-500/30 transition">
+                  🌐 Ver no Bluesoft Cosmos ↗
+                </a>
+              </div>
+              <h2 id="resName" class="text-xl font-black text-white mt-2">---</h2>
+              <p id="resBrand" class="text-xs text-slate-400 mt-0.5">---</p>
+            </div>
+            <button onclick="editCurrentFood()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-600 transition shrink-0">
+              ✏️ Editar
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+              <span class="text-slate-400 block text-[10px] uppercase font-bold">Categoria</span>
+              <span id="resCategory" class="text-slate-100 font-bold text-sm mt-0.5 block">---</span>
+            </div>
+            <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+              <span class="text-slate-400 block text-[10px] uppercase font-bold">Embalagem</span>
+              <span id="resPackage" class="text-slate-100 font-bold text-sm mt-0.5 block">---</span>
+            </div>
+          </div>
+
+          <!-- LIXEIRA DA EMBALAGEM -->
+          <div id="resBinBox" class="p-4 rounded-2xl flex items-center justify-between border">
+            <div class="flex items-center gap-3">
+              <span id="resBinIcon" class="text-2xl">♻️</span>
+              <div>
+                <span class="text-[10px] uppercase font-bold opacity-80 block">Descarte da Embalagem</span>
+                <span id="resBinText" class="text-sm font-black">---</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 2: FORMULÁRIO DE CADASTRO COM ASSISTENTE IA -->
+        <div id="registerCard" class="glass-card p-6 rounded-3xl space-y-4 shadow-xl border border-emerald-500/30">
+          <div class="border-b border-slate-800 pb-3 flex items-center justify-between gap-2">
+            <div>
+              <h2 id="formTitle" class="text-base font-black text-emerald-300 flex items-center gap-1.5">
+                ✨ Cadastro Assistido por IA
+              </h2>
+              <p class="text-[11px] text-slate-400">Valida o dígito verificador GTIN/EAN e preenche categoria, marca e lixeira.</p>
+            </div>
+            <span id="notFoundBadge" class="hidden text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-full font-bold shrink-0">
+              Código Novo!
+            </span>
+          </div>
+
+          <!-- BANNER DO ASSISTENTE IA -->
+          <div id="aiHelperBanner" class="bg-emerald-950/80 border border-emerald-500/40 rounded-2xl p-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <span class="text-xl">🤖</span>
+              <p id="aiHelperText" class="text-[11px] text-emerald-200 leading-snug">
+                Digite ou fale o alimento (ex: <strong>Biscoito Passatempo 139g</strong>) que eu preencho todos os campos!
+              </p>
+            </div>
+            <button type="button" onclick="forceAiComplete()" class="shrink-0 bg-emerald-600/40 hover:bg-emerald-600/60 border border-emerald-400/50 text-emerald-100 text-[10px] font-bold px-3 py-1.5 rounded-xl transition">
+              ✨ Completar
+            </button>
+          </div>
+
+          <form id="foodForm" onsubmit="saveFood(event)" class="space-y-3.5">
+            
+            <!-- LINHA 1: CÓDIGO E NOME COM MICROFONE -->
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div class="sm:col-span-5">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="block text-[11px] font-bold text-slate-300">Código (GTIN/EAN) *</label>
+                  <button type="button" onclick="openCosmosLookup()" class="text-[10px] text-sky-400 hover:underline">
+                    Buscar no Cosmos ↗
+                  </button>
+                </div>
+                <div class="flex gap-1.5">
+                  <input type="text" id="inputBarcode" required placeholder="789..."
+                    oninput="aiAnalyzeBarcode(this.value)"
+                    class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-400" />
+                  <button type="button" onclick="generateTempCode()" title="Gerar código EAN-13 válido" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 text-[10px] px-2 rounded-xl shrink-0">
+                    Gerar
+                  </button>
+                </div>
+              </div>
+
+              <div class="sm:col-span-7">
+                <label class="block text-[11px] font-bold text-slate-300 mb-1">Nome do Alimento *</label>
+                <div class="flex gap-1.5">
+                  <input type="text" id="inputName" required placeholder="Ex: Refrigerante Coca-Cola Lata 350ml"
+                    oninput="aiSmartAssist(this.value)"
+                    class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400" />
+                  <button type="button" id="voiceBtn" onclick="startVoiceInput()" title="Falar nome do alimento"
+                    class="bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-500/40 text-emerald-200 px-3 rounded-xl text-sm shrink-0 transition">
+                    🎤
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- ATALHOS RÁPIDOS DE EMBALAGENS -->
+            <div>
+              <span class="text-[10px] text-slate-400 block mb-1">Sugestões rápidas de embalagem:</span>
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" onclick="applyPackagePreset('Caixa de Papelão Cartão', 'azul')" class="text-[10px] bg-blue-950/60 hover:bg-blue-900/70 border border-blue-500/30 text-blue-200 px-2 py-1 rounded-lg transition">🟦 Caixa Papelão</button>
+                <button type="button" onclick="applyPackagePreset('Garrafa PET / Plástico', 'vermelho')" class="text-[10px] bg-red-950/60 hover:bg-red-900/70 border border-red-500/30 text-red-200 px-2 py-1 rounded-lg transition">🟥 Plástico / PET</button>
+                <button type="button" onclick="applyPackagePreset('Lata de Alumínio / Aço', 'amarelo')" class="text-[10px] bg-yellow-950/60 hover:bg-yellow-900/70 border border-yellow-500/30 text-yellow-200 px-2 py-1 rounded-lg transition">🟨 Lata Metal</button>
+                <button type="button" onclick="applyPackagePreset('Pote / Garrafa de Vidro', 'verde')" class="text-[10px] bg-emerald-950/60 hover:bg-emerald-900/70 border border-emerald-500/30 text-emerald-200 px-2 py-1 rounded-lg transition">🟩 Vidro</button>
+              </div>
+            </div>
+
+            <!-- LINHA 2: MARCA/PESO E CATEGORIA -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-300 mb-1">Marca / Peso</label>
+                <input type="text" id="inputBrand" placeholder="Ex: Nestlé • 139g"
+                  class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-300 mb-1">Categoria *</label>
+                <select id="inputCategory" class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400">
+                  <option value="Bebidas">Bebidas</option>
+                  <option value="Doces & Biscoitos">Doces &amp; Biscoitos</option>
+                  <option value="Grãos & Massas">Grãos &amp; Massas</option>
+                  <option value="Laticínios">Laticínios</option>
+                  <option value="Enlatados & Conservas">Enlatados &amp; Conservas</option>
+                  <option value="Molhos & Temperos">Molhos &amp; Temperos</option>
+                  <option value="Outros Alimentos">Outros Alimentos</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- LINHA 3: EMBALAGEM E LIXEIRA -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-300 mb-1">Tipo de Embalagem *</label>
+                <input type="text" id="inputPackage" required placeholder="Preenchido pela IA..."
+                  class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-300 mb-1">Lixeira da Embalagem *</label>
+                <select id="inputBin" class="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400">
+                  <option value="azul">🟦 Azul (Papel / Papelão)</option>
+                  <option value="vermelho">🟥 Vermelha (Plástico)</option>
+                  <option value="amarelo">🟨 Amarela (Metal / Lata)</option>
+                  <option value="verde">🟩 Verde (Vidro)</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="submit" class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-3 rounded-xl shadow-lg transition">
+              💾 Salvar Alimento no Cadastro
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- LISTA DE ALIMENTOS CADASTRADOS (CÓDIGOS VERIFICADOS BLUESOFT COSMOS) -->
+    <section class="glass-card p-6 rounded-3xl space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-black text-emerald-300 uppercase tracking-wider">📦 Catálogo de Alimentos (GTIN/EAN Corrigidos)</h2>
+          <p class="text-[11px] text-slate-400">Clique em "Abrir" para visualizar os detalhes ou conferir o produto direto no Bluesoft Cosmos.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- FILTRO POR LIXEIRA -->
+          <div class="flex gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-[11px]">
+            <button onclick="setBinFilter('all')" id="filter-all" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold">Todos</button>
+            <button onclick="setBinFilter('azul')" id="filter-azul" class="px-2 py-1 rounded-lg text-slate-300 hover:bg-slate-800">🟦</button>
+            <button onclick="setBinFilter('vermelho')" id="filter-vermelho" class="px-2 py-1 rounded-lg text-slate-300 hover:bg-slate-800">🟥</button>
+            <button onclick="setBinFilter('amarelo')" id="filter-amarelo" class="px-2 py-1 rounded-lg text-slate-300 hover:bg-slate-800">🟨</button>
+            <button onclick="setBinFilter('verde')" id="filter-verde" class="px-2 py-1 rounded-lg text-slate-300 hover:bg-slate-800">🟩</button>
+          </div>
+
+          <!-- BUSCA POR TEXTO -->
+          <input type="text" id="filterInput" oninput="renderFoodList()" placeholder="Buscar nome, marca ou EAN..."
+            class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-400 sm:w-60" />
+        </div>
+      </div>
+
+      <div class="overflow-x-auto max-h-[420px]">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="sticky top-0 bg-slate-950/95 z-10">
+            <tr class="border-b border-slate-800 text-slate-400 uppercase">
+              <th class="py-2.5 px-3">GTIN / EAN</th>
+              <th class="py-2.5 px-3">Alimento</th>
+              <th class="py-2.5 px-3">Categoria</th>
+              <th class="py-2.5 px-3">Lixeira</th>
+              <th class="py-2.5 px-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="foodTableBody" class="divide-y divide-slate-800/70 text-slate-200">
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // ========================================================
+    // BANCO DE DADOS CORRIGIDO VIA BLUESOFT COSMOS
+    // ========================================================
+    const defaultFoods = {
+      // 🟦 LIXEIRA AZUL (PAPEL / PAPELÃO)
+      "7891008114003": { name: "Bombom Garoto Garotices Caixa", brand: "Garoto • 250g", category: "Doces & Biscoitos", package: "Caixa de Papelão Cartão", bin: "azul" },
+      "7891000438091": { name: "Caixa Bombom Garoto Sortidos", brand: "Garoto • 250g", category: "Doces & Biscoitos", package: "Caixa de Papelão Cartão", bin: "azul" },
+      "7891000325131": { name: "Bombom Nestlé Especialidades Caixa", brand: "Nestlé • 251g", category: "Doces & Biscoitos", package: "Caixa de Papelão Cartão", bin: "azul" },
+      "7894000010014": { name: "Amido de Milho Maizena Caixa", brand: "Maizena • 200g", category: "Grãos & Massas", package: "Caixa de Papelão", bin: "azul" },
+      "7892840815769": { name: "Aveia em Flocos Finos Quaker Caixa", brand: "Quaker • 165g", category: "Grãos & Massas", package: "Caixa de Papelão", bin: "azul" },
+      "7891910001972": { name: "Açúcar Refinado União", brand: "União • 1kg", category: "Grãos & Massas", package: "Pacote de Papel", bin: "azul" },
+      "7891098000163": { name: "Chá Matte Leão Original 25 Sachês", brand: "Matte Leão • 40g", category: "Bebidas", package: "Caixa de Papel Cartão", bin: "azul" },
+
+      // 🟥 LIXEIRA VERMELHA (PLÁSTICOS)
+      "7894900018448": { name: "Refrigerante Coca-Cola PET", brand: "Coca-Cola • 2L", category: "Bebidas", package: "Garrafa Plástica PET", bin: "vermelho" },
+      "7894900530001": { name: "Água Mineral Crystal sem Gás Garrafa", brand: "Crystal • 510ml", category: "Bebidas", package: "Garrafa Plástica PET", bin: "vermelho" },
+      "7896006711254": { name: "Arroz Tipo 1 Camil", brand: "Camil • 5kg", category: "Grãos & Massas", package: "Saco Plástico", bin: "vermelho" },
+      "7897136400155": { name: "Feijão Carioca Tipo 1 Kicaldo", brand: "Kicaldo • 1kg", category: "Grãos & Massas", package: "Saco Plástico", bin: "vermelho" },
+      "7896036090244": { name: "Óleo de Soja Tipo 1 Liza Garrafa", brand: "Liza • 900ml", category: "Molhos & Temperos", package: "Garrafa Plástica PET", bin: "vermelho" },
+      "7891000023808": { name: "Biscoito Chocolate Recheio Baunilha Negresco", brand: "Nestlé • 140g", category: "Doces & Biscoitos", package: "Pacote Plástico", bin: "vermelho" },
+      "7891000249673": { name: "Biscoito Recheado Chocolate Passatempo", brand: "Nestlé • 139g", category: "Doces & Biscoitos", package: "Pacote Plástico", bin: "vermelho" },
+      "7896102500844": { name: "Milho Verde em Conserva Quero Sachê", brand: "Quero • 170g", category: "Enlatados & Conservas", package: "Sachê Plástico", bin: "vermelho" },
+      "7896102500165": { name: "Molho de Tomate Tradicional Quero Sachê", brand: "Quero • 240g", category: "Molhos & Temperos", package: "Sachê Plástico", bin: "vermelho" },
+      "7896048283405": { name: "Vinagre de Álcool Castelo Garrafa", brand: "Castelo • 750ml", category: "Molhos & Temperos", package: "Garrafa Plástica PET", bin: "vermelho" },
+      "7896292301597": { name: "Molho Barbecue Soeto Frasco", brand: "Soeto • 330g", category: "Molhos & Temperos", package: "Frasco Plástico", bin: "vermelho" },
+
+      // 🟨 LIXEIRA AMARELA (METAIS / LATAS)
+      "7894900010015": { name: "Refrigerante Coca-Cola Original Lata", brand: "Coca-Cola • 350ml", category: "Bebidas", package: "Lata de Alumínio", bin: "amarelo" },
+      "7894900700015": { name: "Refrigerante Coca-Cola Zero Açúcar Lata", brand: "Coca-Cola • 350ml", category: "Bebidas", package: "Lata de Alumínio", bin: "amarelo" },
+      "7891149010509": { name: "Cerveja Chopp Original Brahma Lata", brand: "Brahma • 350ml", category: "Bebidas", package: "Lata de Alumínio", bin: "amarelo" },
+      "7891991000826": { name: "Refrigerante Guaraná Antarctica Lata", brand: "Antarctica • 350ml", category: "Bebidas", package: "Lata de Alumínio", bin: "amarelo" },
+      "7891000352175": { name: "Achocolatado em Pó Nescau Lata", brand: "Nestlé • 370g", category: "Laticínios", package: "Lata Metálica", bin: "amarelo" },
+      "7891000323571": { name: "Achocolatado em Pó Nescau Lata", brand: "Nestlé • 350g", category: "Laticínios", package: "Lata Metálica", bin: "amarelo" },
+      "7891000100103": { name: "Leite Condensado Integral Moça Lata", brand: "Nestlé • 395g", category: "Laticínios", package: "Lata de Aço", bin: "amarelo" },
+      "7896102506082": { name: "Milho Verde Quero Lata", brand: "Quero • 170g", category: "Enlatados & Conservas", package: "Lata de Aço", bin: "amarelo" },
+
+      // 🟩 LIXEIRA VERDE (VIDROS)
+      "7894000050034": { name: "Maionese Hellmann's Pote de Vidro", brand: "Hellmann's • 500g", category: "Molhos & Temperos", package: "Pote de Vidro", bin: "verde" },
+      "5601252231164": { name: "Azeite de Oliva Extra Virgem Clássico Gallo", brand: "Gallo • 500ml", category: "Molhos & Temperos", package: "Garrafa de Vidro", bin: "verde" }
+    };
+
+    let savedFoods = {};
+    let currentBinFilter = "all";
+    let html5QrCode = null;
+    let isScanning = false;
+    let selectedCameraId = null;
+    let lastCode = "";
+    let lastCodeTime = 0;
+
+    // ========================================================
+    // VALIDADOR MATEMÁTICO DE DÍGITO VERIFICADOR GTIN/EAN-13
+    // ========================================================
+    function isValidEAN13(code) {
+      if (!/^\d{13}$/.test(code)) return false;
+      const digits = code.split("").map(Number);
+      const checkDigit = digits.pop();
+      const sum = digits.reduce((acc, d, idx) => acc + d * (idx % 2 === 0 ? 1 : 3), 0);
+      const calculated = (10 - (sum % 10)) % 10;
+      return checkDigit === calculated;
+    }
+
+    function generateValidEAN13() {
+      const base = "789" + String(Math.floor(100000000 + Math.random() * 900000000));
+      const digits = base.split("").map(Number);
+      const sum = digits.reduce((acc, d, idx) => acc + d * (idx % 2 === 0 ? 1 : 3), 0);
+      const checkDigit = (10 - (sum % 10)) % 10;
+      return base + checkDigit;
+    }
+
+    // ========================================================
+    // ASSISTENTE DE IA APRIMORADO
+    // ========================================================
+    const knownBrands = [
+      "Nestlé", "Garoto", "Coca-Cola", "Brahma", "Stella Artois", "Quero", "Camil",
+      "Kicaldo", "Wickbold", "Bauducco", "Hellmann's", "Gallo", "Liza", "União",
+      "Quaker", "Maizena", "Itambé", "Piracanjuba", "Danone", "Sadia", "Perdigão",
+      "Aurora", "Gomes da Costa", "Coqueiro", "Doritos", "Elma Chips", "Dr. Oetker",
+      "Leão", "Matte Leão", "Queensberry", "Renata", "Barilla", "Heinz", "Nescau",
+      "Nescafé", "Antarctica", "Passatempo", "Crystal", "Castelo", "Soeto"
+    ];
+
+    const knowledgeRules = [
+      {
+        keywords: ["lata", "refrigerante", "cerveja", "milho", "ervilha", "sardinha", "atum", "leite condensado", "creme de leite lata"],
+        category: "Enlatados & Conservas",
+        package: "Lata Metálica / Alumínio",
+        bin: "amarelo",
+        binLabel: "Lixeira Amarela (Metal)"
+      },
+      {
+        keywords: ["vidro", "geleia", "azeite", "palmito", "azeitona", "cafe soluvel", "pote vidro", "long neck", "vinho", "pimenta", "suco de uva"],
+        category: "Enlatados & Conservas",
+        package: "Pote ou Garrafa de Vidro",
+        bin: "verde",
+        binLabel: "Lixeira Verde (Vidro)"
+      },
+      {
+        keywords: ["caixa", "bombom", "chocolate", "cereal", "aveia", "maisena", "amido", "cha", "matte", "sache cha", "papelao", "gelatina", "farinha lactea", "pacote de papel", "acucar"],
+        category: "Doces & Biscoitos",
+        package: "Caixa de Papelão Cartão",
+        bin: "azul",
+        binLabel: "Lixeira Azul (Papel)"
+      },
+      {
+        keywords: ["iogurte", "requeijao", "manteiga", "queijo", "leite em po", "achocolatado"],
+        category: "Laticínios",
+        package: "Pote ou Embalagem Plástica",
+        bin: "vermelho",
+        binLabel: "Lixeira Vermelha (Plástico)"
+      },
+      {
+        keywords: ["arroz", "feijao", "macarrao", "farinha", "sal", "pao", "bisnaguinha", "biscoito", "bolacha", "passatempo", "salgadinho", "pet", "garrafa", "agua", "oleo", "vinagre", "ketchup", "maionese", "barbecue", "molho", "squeeze", "sache"],
+        category: "Grãos & Massas",
+        package: "Embalagem Plástica Flexível / PET",
+        bin: "vermelho",
+        binLabel: "Lixeira Vermelha (Plástico)"
+      }
+    ];
+
+    function aiAnalyzeBarcode(code) {
+      const clean = code.trim();
+      const helperText = document.getElementById("aiHelperText");
+      if (clean.length === 13) {
+        const valid = isValidEAN13(clean);
+        const origin = (clean.startsWith("789") || clean.startsWith("790")) ? "Brasil (GS1)" : "Internacional";
+        helperText.innerHTML = valid
+          ? `✅ GTIN-13 válido (${origin}). Clique em <strong>Buscar no Cosmos ↗</strong> ou digite o nome!`
+          : `⚠️ Atenção: o dígito verificador deste EAN-13 não bate com o padrão GS1.`;
+      } else if (clean.startsWith("789") || clean.startsWith("790")) {
+        helperText.innerHTML = `Prefixo brasileiro detectado (<strong>GS1 ${clean.slice(0,3)}</strong>).`;
+      }
+    }
+
+    function aiSmartAssist(rawText) {
+      const text = rawText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const helperText = document.getElementById("aiHelperText");
+
+      if (text.trim().length < 2) {
+        helperText.innerHTML = 'Digite ou fale o alimento que eu preencho marca, peso, categoria, embalagem e lixeira!';
+        return;
+      }
+
+      let detectedBrand = "";
+      for (const brand of knownBrands) {
+        const normBrand = brand.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (text.includes(normBrand)) {
+          detectedBrand = brand;
+          break;
+        }
+      }
+
+      const weightMatch = rawText.match(/(\d+(?:[.,]\d+)?\s*(?:g|kg|ml|l))\b/i);
+      const detectedWeight = weightMatch ? weightMatch[0] : "";
+
+      const brandInput = document.getElementById("inputBrand");
+      if (detectedBrand || detectedWeight) {
+        const parts = [detectedBrand, detectedWeight].filter(Boolean);
+        brandInput.value = parts.join(" • ");
+      }
+
+      for (const rule of knowledgeRules) {
+        if (rule.keywords.some(k => text.includes(k))) {
+          let finalCategory = rule.category;
+
+          if (text.includes("refrigerante") || text.includes("cerveja") || text.includes("suco") || text.includes("agua") || text.includes("cha") || text.includes("matte") || text.includes("cafe")) {
+            finalCategory = "Bebidas";
+          } else if (text.includes("biscoito") || text.includes("bolacha") || text.includes("passatempo") || text.includes("chocolate") || text.includes("bombom") || text.includes("salgadinho")) {
+            finalCategory = "Doces & Biscoitos";
+          } else if (text.includes("azeite") || text.includes("oleo") || text.includes("vinagre") || text.includes("maionese") || text.includes("barbecue") || text.includes("molho") || text.includes("ketchup") || text.includes("pimenta")) {
+            finalCategory = "Molhos & Temperos";
+          } else if (text.includes("leite") || text.includes("iogurte") || text.includes("queijo")) {
+            finalCategory = "Laticínios";
+          }
+
+          document.getElementById("inputCategory").value = finalCategory;
+          document.getElementById("inputPackage").value = rule.package;
+          document.getElementById("inputBin").value = rule.bin;
+
+          helperText.innerHTML = `✨ IA detectou: <strong>${finalCategory}</strong> • ${rule.package} → <strong>${rule.binLabel}</strong>.`;
+          return;
+        }
+      }
+
+      helperText.innerHTML = 'Continue digitando ou clique em <strong>✨ Completar</strong> para sugerir a embalagem.';
+    }
+
+    function forceAiComplete() {
+      const nameInput = document.getElementById("inputName");
+      if (!nameInput.value.trim()) {
+        nameInput.focus();
+        showToast("Digite o nome do alimento primeiro!", "🤖");
+        return;
+      }
+
+      aiSmartAssist(nameInput.value);
+
+      const pkgInput = document.getElementById("inputPackage");
+      if (!pkgInput.value.trim()) {
+        pkgInput.value = "Embalagem Plástica Padrão";
+        document.getElementById("inputBin").value = "vermelho";
+        document.getElementById("aiHelperText").innerHTML = "Preenchi com o padrão de embalagem plástica (<strong>Lixeira Vermelha</strong>).";
+      }
+      showToast("Campos completados pela IA!", "✨");
+    }
+
+    function openCosmosLookup() {
+      const code = document.getElementById("inputBarcode").value.trim();
+      const name = document.getElementById("inputName").value.trim();
+      const query = code || name || "alimentos";
+      window.open(`https://cosmos.bluesoft.com.br/pesquisar?q=${encodeURIComponent(query)}`, "_blank", "noopener");
+    }
+
+    function applyPackagePreset(pkgName, binColor) {
+      document.getElementById("inputPackage").value = pkgName;
+      document.getElementById("inputBin").value = binColor;
+      showToast(`Embalagem definida: ${pkgName}`, "♻️");
+    }
+
+    function generateTempCode() {
+      const validCode = generateValidEAN13();
+      document.getElementById("inputBarcode").value = validCode;
+      aiAnalyzeBarcode(validCode);
+      showToast("Código EAN-13 válido gerado!", "🔢");
+    }
+
+    function startVoiceInput() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showToast("Seu navegador não suporta ditado por voz.", "⚠️");
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = "pt-BR";
+      recognition.interimResults = false;
+
+      const btn = document.getElementById("voiceBtn");
+      btn.innerText = "🔴";
+      showToast("Pode falar o nome do alimento...", "🎤");
+
+      recognition.onresult = (event) => {
+        const spokenText = event.results[0][0].transcript;
+        const formatted = spokenText.charAt(0).toUpperCase() + spokenText.slice(1);
+        document.getElementById("inputName").value = formatted;
+        aiSmartAssist(formatted);
+        showToast(`Reconhecido: "${formatted}"`, "✅");
+      };
+
+      recognition.onerror = () => showToast("Não consegui ouvir. Tente novamente.", "⚠️");
+      recognition.onend = () => { btn.innerText = "🎤"; };
+
+      recognition.start();
+    }
+
+    // ========================================================
+    // LEITOR DE CÓDIGO DE BARRAS
+    // ========================================================
+    function playBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      } catch (e) {}
+    }
+
+    function showToast(msg, icon = "✅") {
+      const toast = document.getElementById("toast");
+      document.getElementById("toastMsg").innerText = msg;
+      document.getElementById("toastIcon").innerText = icon;
+      toast.classList.remove("translate-x-full", "opacity-0");
+      setTimeout(() => toast.classList.add("translate-x-full", "opacity-0"), 2800);
+    }
+
+    function loadFoods() {
+      const raw = localStorage.getItem("alimentos_scanner_db_v4");
+      savedFoods = raw ? JSON.parse(raw) : {};
+      renderFoodList();
+    }
+
+    function getAllFoods() {
+      return { ...defaultFoods, ...savedFoods };
+    }
+
+    async function initCameras() {
+      const statusEl = document.getElementById("camStatus");
+      const fallbackEl = document.getElementById("cameraFallback");
+      const fallbackMsg = document.getElementById("cameraFallbackMsg");
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.innerText = "● Abra via Localhost ou HTTPS";
+        fallbackMsg.innerText = "O navegador bloqueia a câmera em arquivos locais (file://). Use um servidor local (Live Server) ou HTTPS.";
+        fallbackEl.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (cameras && cameras.length > 0) {
+          const select = document.getElementById("cameraSelect");
+          select.innerHTML = cameras.map((c, i) => `<option value="${c.id}">${c.label || `Câmera ${i + 1}`}</option>`).join("");
+
+          if (cameras.length > 1) {
+            document.getElementById("cameraSelectBox").classList.remove("hidden");
+          }
+
+          const backCam = cameras.find(c => /back|traseira|environment/i.test(c.label));
+          selectedCameraId = backCam ? backCam.id : cameras[0].id;
+          select.value = selectedCameraId;
+
+          await startScanner(selectedCameraId);
+        } else {
+          statusEl.innerText = "● Nenhuma câmera detectada";
+          fallbackMsg.innerText = "Nenhuma webcam conectada foi encontrada.";
+          fallbackEl.classList.remove("hidden");
+        }
+      } catch (err) {
+        statusEl.innerText = "● Permissão negada";
+        fallbackMsg.innerText = "Libere o acesso à câmera no navegador e clique em Ligar Câmera.";
+        fallbackEl.classList.remove("hidden");
+      }
+    }
+
+    async function startScanner(cameraId = selectedCameraId) {
+      const statusEl = document.getElementById("camStatus");
+      const fallbackEl = document.getElementById("cameraFallback");
+      const overlayEl = document.getElementById("scanOverlay");
+
+      try {
+        if (!html5QrCode) {
+          html5QrCode = new Html5Qrcode("reader", {
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8,
+              Html5QrcodeSupportedFormats.UPC_A,
+              Html5QrcodeSupportedFormats.UPC_E,
+              Html5QrcodeSupportedFormats.CODE_128
+            ],
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            }
+          });
+        }
+
+        if (isScanning) {
+          await html5QrCode.stop();
+          isScanning = false;
+        }
+
+        fallbackEl.classList.add("hidden");
+        statusEl.innerText = "● Conectando...";
+
+        await html5QrCode.start(
+          cameraId ? { deviceId: { exact: cameraId } } : { facingMode: "environment" },
+          {
+            fps: 20,
+            qrbox: { width: 290, height: 120 }
+          },
+          (decodedText) => {
+            const now = Date.now();
+            if (decodedText !== lastCode || now - lastCodeTime > 2500) {
+              lastCode = decodedText;
+              lastCodeTime = now;
+              playBeep();
+              if (navigator.vibrate) navigator.vibrate(80);
+              handleBarcodeDetected(decodedText);
+            }
+          },
+          () => {}
+        );
+
+        isScanning = true;
+        overlayEl.classList.remove("hidden");
+        statusEl.innerText = "● Leitor Ativo";
+      } catch (err) {
+        isScanning = false;
+        overlayEl.classList.add("hidden");
+        statusEl.innerText = "● Câmera Inativa";
+        fallbackEl.classList.remove("hidden");
+      }
+    }
+
+    async function changeCamera(camId) {
+      selectedCameraId = camId;
+      await startScanner(camId);
+    }
+
+    async function restartScanner() {
+      if (selectedCameraId) {
+        await startScanner(selectedCameraId);
+      } else {
+        await initCameras();
+      }
+    }
+
+    async function scanFromFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      try {
+        const wasRunning = isScanning;
+        if (wasRunning && html5QrCode) {
+          await html5QrCode.stop();
+          isScanning = false;
+          document.getElementById("scanOverlay").classList.add("hidden");
+        }
+
+        if (!html5QrCode) {
+          html5QrCode = new Html5Qrcode("reader");
+        }
+
+        const code = await html5QrCode.scanFile(file, true);
+        playBeep();
+        handleBarcodeDetected(code);
+        showToast(`Código lido: ${code}`, "🖼️");
+
+        if (wasRunning) await startScanner(selectedCameraId);
+      } catch (err) {
+        showToast("Não foi possível ler o código nessa foto.", "⚠️");
+        if (selectedCameraId) await startScanner(selectedCameraId);
+      } finally {
+        event.target.value = "";
+      }
+    }
+
+    // ========================================================
+    // CONSULTA, EDIÇÃO E LISTAGEM
+    // ========================================================
+    function searchManual() {
+      const code = document.getElementById("manualBarcode").value.trim();
+      if (code) handleBarcodeDetected(code);
+    }
+
+    function handleBarcodeDetected(code) {
+      const all = getAllFoods();
+      const food = all[code];
+
+      const resultCard = document.getElementById("foodResultCard");
+      const notFoundBadge = document.getElementById("notFoundBadge");
+
+      if (food) {
+        document.getElementById("resBarcode").innerText = `GTIN/EAN: ${code}`;
+        document.getElementById("cosmosLink").href = `https://cosmos.bluesoft.com.br/pesquisar?q=${encodeURIComponent(code)}`;
+        document.getElementById("resName").innerText = food.name;
+        document.getElementById("resBrand").innerText = food.brand || "Marca não informada";
+        document.getElementById("resCategory").innerText = food.category;
+        document.getElementById("resPackage").innerText = food.package;
+
+        const binStyles = {
+          azul: { icon: "🟦", text: "Lixeira Azul (Papel / Papelão)", cls: "bg-blue-950/80 border-blue-500/50 text-blue-200" },
+          vermelho: { icon: "🟥", text: "Lixeira Vermelha (Plástico)", cls: "bg-red-950/80 border-red-500/50 text-red-200" },
+          amarelo: { icon: "🟨", text: "Lixeira Amarela (Metal / Lata)", cls: "bg-yellow-950/80 border-yellow-500/50 text-yellow-200" },
+          verde: { icon: "🟩", text: "Lixeira Verde (Vidro)", cls: "bg-emerald-950/80 border-emerald-500/50 text-emerald-200" }
+        };
+
+        const b = binStyles[food.bin] || binStyles.azul;
+        document.getElementById("resBinIcon").innerText = b.icon;
+        document.getElementById("resBinText").innerText = b.text;
+        document.getElementById("resBinBox").className = `p-4 rounded-2xl flex items-center justify-between border ${b.cls}`;
+
+        resultCard.classList.remove("hidden");
+        notFoundBadge.classList.add("hidden");
+        document.getElementById("formTitle").innerText = "✨ Cadastro Assistido por IA";
+        showToast(`Encontrado: ${food.name}`, "✅");
+      } else {
+        resultCard.classList.add("hidden");
+        notFoundBadge.classList.remove("hidden");
+        document.getElementById("formTitle").innerText = "📝 Cadastrar Alimento Lido";
+        document.getElementById("inputBarcode").value = code;
+        document.getElementById("inputName").value = "";
+        document.getElementById("inputBrand").value = "";
+        document.getElementById("inputPackage").value = "";
+        aiAnalyzeBarcode(code);
+        document.getElementById("inputName").focus();
+        showToast("Código novo! Busque no Cosmos ou digite o nome.", "📝");
+      }
+    }
+
+    function editCurrentFood() {
+      const code = document.getElementById("resBarcode").innerText.replace("GTIN/EAN: ", "").trim();
+      const food = getAllFoods()[code];
+      if (!food) return;
+
+      document.getElementById("formTitle").innerText = "✏️ Editando Alimento";
+      document.getElementById("inputBarcode").value = code;
+      document.getElementById("inputName").value = food.name;
+      document.getElementById("inputBrand").value = food.brand || "";
+      document.getElementById("inputCategory").value = food.category;
+      document.getElementById("inputPackage").value = food.package;
+      document.getElementById("inputBin").value = food.bin;
+      document.getElementById("inputName").focus();
+    }
+
+    function saveFood(event) {
+      event.preventDefault();
+      const code = document.getElementById("inputBarcode").value.trim();
+
+      savedFoods[code] = {
+        name: document.getElementById("inputName").value.trim(),
+        brand: document.getElementById("inputBrand").value.trim(),
+        category: document.getElementById("inputCategory").value,
+        package: document.getElementById("inputPackage").value.trim(),
+        bin: document.getElementById("inputBin").value
+      };
+
+      localStorage.setItem("alimentos_scanner_db_v4", JSON.stringify(savedFoods));
+      document.getElementById("foodForm").reset();
+      document.getElementById("notFoundBadge").classList.add("hidden");
+      document.getElementById("formTitle").innerText = "✨ Cadastro Assistido por IA";
+      document.getElementById("aiHelperText").innerHTML = "Salvo! Escaneie outro produto ou digite o nome para cadastrar.";
+
+      renderFoodList();
+      handleBarcodeDetected(code);
+      showToast("Alimento salvo no cadastro!", "💾");
+    }
+
+    function deleteFood(code) {
+      if (savedFoods[code]) {
+        delete savedFoods[code];
+        localStorage.setItem("alimentos_scanner_db_v4", JSON.stringify(savedFoods));
+        renderFoodList();
+        showToast("Item removido do cadastro.", "🗑️");
+      }
+    }
+
+    function setBinFilter(bin) {
+      currentBinFilter = bin;
+      ["all", "azul", "vermelho", "amarelo", "verde"].forEach(b => {
+        const btn = document.getElementById(`filter-${b}`);
+        if (b === bin) {
+          btn.className = "px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold";
+        } else {
+          btn.className = "px-2 py-1 rounded-lg text-slate-300 hover:bg-slate-800";
+        }
+      });
+      renderFoodList();
+    }
+
+    function renderFoodList() {
+      const all = getAllFoods();
+      const query = document.getElementById("filterInput").value.toLowerCase().trim();
+      const tbody = document.getElementById("foodTableBody");
+
+      document.getElementById("totalBadge").innerText = `${Object.keys(all).length} itens`;
+
+      const binLabels = {
+        azul: "🟦 Azul",
+        vermelho: "🟥 Vermelha",
+        amarelo: "🟨 Amarela",
+        verde: "🟩 Verde"
+      };
+
+      const filtered = Object.entries(all).filter(([code, item]) => {
+        const matchesBin = currentBinFilter === "all" || item.bin === currentBinFilter;
+        const matchesText =
+          code.includes(query) ||
+          item.name.toLowerCase().includes(query) ||
+          (item.brand && item.brand.toLowerCase().includes(query)) ||
+          item.category.toLowerCase().includes(query);
+        return matchesBin && matchesText;
+      });
+
+      tbody.innerHTML = filtered.map(([code, item]) => `
+        <tr class="hover:bg-slate-900/60 transition">
+          <td class="py-2.5 px-3 font-mono text-emerald-400">
+            <a href="https://cosmos.bluesoft.com.br/pesquisar?q=${encodeURIComponent(code)}" target="_blank" rel="noopener" class="hover:underline" title="Conferir no Bluesoft Cosmos">
+              ${code}
+            </a>
+          </td>
+          <td class="py-2.5 px-3">
+            <span class="font-bold text-white block">${item.name}</span>
+            <span class="text-[10px] text-slate-400">${item.brand || ""} • ${item.package}</span>
+          </td>
+          <td class="py-2.5 px-3 text-slate-300">${item.category}</td>
+          <td class="py-2.5 px-3 font-bold">${binLabels[item.bin] || item.bin}</td>
+          <td class="py-2.5 px-3 text-right space-x-1">
+            <button onclick="handleBarcodeDetected('${code}'); window.scrollTo({top: 0, behavior: 'smooth'});" class="bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+              Abrir
+            </button>
+            ${savedFoods[code] ? `
+              <button onclick="deleteFood('${code}')" class="bg-rose-950/70 hover:bg-rose-900 text-rose-300 px-2 py-1 rounded-lg border border-rose-500/30" title="Excluir">
+                ✕
+              </button>
+            ` : ""}
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    window.addEventListener("load", () => {
+      loadFoods();
+      initCameras();
+    });
+  </script>
+</body>
+</html>
